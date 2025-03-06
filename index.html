@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>WebGL 이미지 자동 회전 (좌→우)</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000000; }
+        body { margin: 0; overflow: hidden; }
         canvas { display: block; width: 100vw; height: 100vh; }
         .controls { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.7); padding: 10px; border-radius: 5px; }
     </style>
@@ -20,19 +20,16 @@
     <script>
         // 셰이더 소스 코드
         const vertexShaderSource = `
-            attribute vec2 a_position;
+            attribute vec3 a_position;  // 3D 위치로 변경
             attribute vec2 a_texCoord;
 
-            uniform mat3 u_matrix;
+            uniform mat4 u_matrix;      // 3D 변환을 위한 4x4 행렬로 변경
 
             varying vec2 v_texCoord;
 
             void main() {
                 // 위치에 회전 행렬 적용
-                vec3 position = u_matrix * vec3(a_position, 1.0);
-
-                // WebGL 좌표계로 변환 (-1 ~ +1)
-                gl_Position = vec4(position.xy, 0.0, 1.0);
+                gl_Position = u_matrix * vec4(a_position, 1.0);
 
                 // 텍스처 좌표 전달
                 v_texCoord = a_texCoord;
@@ -60,7 +57,7 @@
             let lastTime = 0;
 
             const canvas = document.getElementById("glCanvas");
-            const gl = canvas.getContext("webgl");
+            const gl = canvas.getContext("webgl", { alpha: true }); // 알파 채널 활성화
 
             if (!gl) {
                 alert("WebGL을 지원하지 않는 브라우저입니다.");
@@ -83,12 +80,12 @@
             const positionBuffer = gl.createBuffer();
             gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 
-            // 이미지를 그릴 사각형의 좌표 설정 (정규화된 좌표계: -1 ~ +1)
+            // 이미지를 그릴 사각형의 좌표 설정 (3D 좌표계로 변경)
             const positions = [
-                -0.5,  0.5,  // 좌측 상단
-                -0.5, -0.5,  // 좌측 하단
-                 0.5,  0.5,  // 우측 상단
-                 0.5, -0.5,  // 우측 하단
+                -0.5,  0.5, 0.0,  // 좌측 상단
+                -0.5, -0.5, 0.0,  // 좌측 하단
+                 0.5,  0.5, 0.0,  // 우측 상단
+                 0.5, -0.5, 0.0,  // 우측 하단
             ];
             gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
@@ -107,7 +104,7 @@
 
             // 이미지 로드 및 텍스처 생성
             const image = new Image();
-            image.src = "gourment.webp"; 
+            image.src = "ksdyb-all.jpeg"; // 같은 폴더의 ksdyb-all.jpeg 이미지 사용
             image.onload = function() {
                 // 텍스처 생성
                 texture = gl.createTexture();
@@ -138,16 +135,16 @@
                     // 이미지가 더 가로로 긴 경우
                     const newHeight = canvasAspect / imageAspect;
                     positions[1] = newHeight / 2;    // 좌측 상단 y
-                    positions[3] = -newHeight / 2;   // 좌측 하단 y
-                    positions[5] = newHeight / 2;    // 우측 상단 y
-                    positions[7] = -newHeight / 2;   // 우측 하단 y
+                    positions[4] = -newHeight / 2;   // 좌측 하단 y
+                    positions[7] = newHeight / 2;    // 우측 상단 y
+                    positions[10] = -newHeight / 2;  // 우측 하단 y
                 } else {
                     // 이미지가 더 세로로 긴 경우
                     const newWidth = imageAspect / canvasAspect;
                     positions[0] = -newWidth / 2;    // 좌측 상단 x
-                    positions[2] = -newWidth / 2;    // 좌측 하단 x
-                    positions[4] = newWidth / 2;     // 우측 상단 x
-                    positions[6] = newWidth / 2;     // 우측 하단 x
+                    positions[3] = -newWidth / 2;    // 좌측 하단 x
+                    positions[6] = newWidth / 2;     // 우측 상단 x
+                    positions[9] = newWidth / 2;     // 우측 하단 x
                 }
 
                 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
@@ -160,20 +157,27 @@
                 const deltaTime = (currentTime - lastTime) / 1000;
                 lastTime = currentTime;
 
-                // 회전 각도 업데이트 (속도에 따라) - 좌에서 우로 회전(반시계 방향)
+                // 회전 각도 업데이트 (속도에 따라) - 좌에서 우로 회전
                 if (isRotating) {
-                    angle -= rotationSpeed * deltaTime * 50; // 부호를 바꿔서 반시계 방향으로
-                    if (angle < 0) {
-                        angle += 360; // 0도보다 작아지면 360도 더하기
+                    angle += rotationSpeed * deltaTime * 50; // 양수로 변경하여 좌→우 회전
+                    if (angle > 360) {
+                        angle -= 360; // 360도를 넘어가면 0도로 리셋
                     }
                 }
 
                 // 뷰포트 설정
                 gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-                // 캔버스 지우기 (검은색 배경)
-                gl.clearColor(0.0, 0.0, 0.0, 1.0);
-                gl.clear(gl.COLOR_BUFFER_BIT);
+                // 캔버스 지우기 (투명 배경)
+                gl.clearColor(0.0, 0.0, 0.0, 0.0); // 알파값을 0으로 설정하여 투명하게
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                // 알파 블렌딩 활성화
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+                // 깊이 테스트 활성화
+                gl.enable(gl.DEPTH_TEST);
 
                 // 셰이더 프로그램 사용
                 gl.useProgram(program);
@@ -181,27 +185,30 @@
                 // 위치 속성 설정
                 gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
                 gl.enableVertexAttribArray(positionLocation);
-                gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0); // 3개 요소로 변경
 
                 // 텍스처 좌표 속성 설정
                 gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
                 gl.enableVertexAttribArray(texCoordLocation);
                 gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
 
-                // 회전 행렬 계산 (각도를 라디안으로 변환)
+                // 회전 각도를 라디안으로 변환
                 const angleInRadians = angle * Math.PI / 180;
+
+                // Y축 회전 행렬 생성 (좌에서 우로 회전)
                 const cosAngle = Math.cos(angleInRadians);
                 const sinAngle = Math.sin(angleInRadians);
 
-                // 회전 행렬 생성
+                // 4x4 변환 행렬 생성 (Y축 회전)
                 const matrix = [
-                    cosAngle, -sinAngle, 0,
-                    sinAngle, cosAngle, 0,
-                    0, 0, 1
+                    cosAngle, 0, sinAngle, 0,
+                    0, 1, 0, 0,
+                    -sinAngle, 0, cosAngle, 0,
+                    0, 0, 0, 1
                 ];
 
                 // 회전 행렬을 셰이더에 전달
-                gl.uniformMatrix3fv(matrixLocation, false, matrix);
+                gl.uniformMatrix4fv(matrixLocation, false, matrix);
 
                 // 텍스처 유닛 0 사용
                 gl.activeTexture(gl.TEXTURE0);
@@ -216,19 +223,19 @@
             }
 
             // 컨트롤 기능 설정
-            const speedControl = document.getElementById('speedControl');
-            speedControl.addEventListener('input', function() {
+            const speedControl = document.getElementById("speedControl");
+            speedControl.addEventListener("input", function() {
                 rotationSpeed = parseFloat(speedControl.value);
             });
 
-            const pauseButton = document.getElementById('pauseButton');
-            pauseButton.addEventListener('click', function() {
+            const pauseButton = document.getElementById("pauseButton");
+            pauseButton.addEventListener("click", function() {
                 isRotating = !isRotating;
-                pauseButton.textContent = isRotating ? '일시정지' : '재생';
+                pauseButton.textContent = isRotating ? "일시정지" : "재생";
             });
 
             // 창 크기 변경 시 캔버스 크기 조정
-            window.addEventListener('resize', function() {
+            window.addEventListener("resize", function() {
                 resizeCanvasToDisplaySize(canvas);
                 gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
             });
@@ -242,7 +249,7 @@
 
             // 컴파일 성공 확인
             if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-                console.error('셰이더 컴파일 오류:', gl.getShaderInfoLog(shader));
+                console.error("셰이더 컴파일 오류:", gl.getShaderInfoLog(shader));
                 gl.deleteShader(shader);
                 return null;
             }
@@ -262,7 +269,7 @@
 
             // 링크 성공 확인
             if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-                console.error('프로그램 링크 오류:', gl.getProgramInfoLog(program));
+                console.error("프로그램 링크 오류:", gl.getProgramInfoLog(program));
                 return null;
             }
 
