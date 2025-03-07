@@ -1,290 +1,342 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>WebGL 이미지 자동 회전 (좌→우)</title>
+    <title>WebGL 이미지 회전</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000000; }
-        canvas { display: block; width: 100vw; height: 100vh; }
-        .controls { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.7); padding: 10px; border-radius: 5px; }
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
     <canvas id="glCanvas"></canvas>
-    <div class="controls">
-        <label for="speedControl">회전 속도: </label>
-        <input type="range" id="speedControl" min="1" max="20" value="5">
-        <button id="pauseButton">일시정지</button>
-    </div>
 
     <script>
+        // WebGL 초기화 및 설정
+        const canvas = document.getElementById('glCanvas');
+        const gl = canvas.getContext('webgl');
+
+        if (!gl) {
+            alert('WebGL을 지원하지 않는 브라우저입니다.');
+            return;
+        }
+
+        // 캔버스 크기 설정
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
         // 셰이더 소스 코드
         const vertexShaderSource = `
-            attribute vec3 a_position;  // 3D 위치로 변경
-            attribute vec2 a_texCoord;
+            attribute vec4 aVertexPosition;
+            attribute vec2 aTextureCoord;
 
-            uniform mat4 u_matrix;      // 3D 변환을 위한 4x4 행렬로 변경
+            uniform mat4 uModelViewMatrix;
+            uniform mat4 uProjectionMatrix;
 
-            varying vec2 v_texCoord;
+            varying highp vec2 vTextureCoord;
 
             void main() {
-                // 위치에 회전 행렬 적용
-                gl_Position = u_matrix * vec4(a_position, 1.0);
-
-                // 텍스처 좌표 전달
-                v_texCoord = a_texCoord;
+                gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+                vTextureCoord = aTextureCoord;
             }
         `;
 
         const fragmentShaderSource = `
-            precision mediump float;
+            varying highp vec2 vTextureCoord;
 
-            uniform sampler2D u_image;
-            varying vec2 v_texCoord;
+            uniform sampler2D uSampler;
 
             void main() {
-                gl_FragColor = texture2D(u_image, v_texCoord);
+                gl_FragColor = texture2D(uSampler, vTextureCoord);
             }
         `;
 
-        // 초기화 및 렌더링 함수
-        function main() {
-            // 회전 관련 변수
-            let angle = 0;
-            let rotationSpeed = 5;
-            let isRotating = true;
-            let texture;
-            let lastTime = 0;
-
-            const canvas = document.getElementById("glCanvas");
-            const gl = canvas.getContext("webgl");
-
-            if (!gl) {
-                alert("WebGL을 지원하지 않는 브라우저입니다.");
-                return;
-            }
-
-            // 캔버스 크기 설정
-            resizeCanvasToDisplaySize(canvas);
-
-            // 셰이더 프로그램 생성
-            const program = createProgram(gl, vertexShaderSource, fragmentShaderSource);
-
-            // 속성 및 유니폼 위치 가져오기
-            const positionLocation = gl.getAttribLocation(program, "a_position");
-            const texCoordLocation = gl.getAttribLocation(program, "a_texCoord");
-            const matrixLocation = gl.getUniformLocation(program, "u_matrix");
-            const imageLocation = gl.getUniformLocation(program, "u_image");
-
-            // 버퍼 생성 및 바인딩
-            const positionBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-
-            // 이미지를 그릴 사각형의 좌표 설정 (3D 좌표계로 변경)
-            const positions = [
-                -0.5,  0.5, 0.0,  // 좌측 상단
-                -0.5, -0.5, 0.0,  // 좌측 하단
-                 0.5,  0.5, 0.0,  // 우측 상단
-                 0.5, -0.5, 0.0,  // 우측 하단
-            ];
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-            // 텍스처 좌표 버퍼 생성 및 바인딩
-            const texCoordBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-
-            // 텍스처 좌표 설정 (0 ~ 1)
-            const texCoords = [
-                0.0, 0.0,  // 좌측 상단
-                0.0, 1.0,  // 좌측 하단
-                1.0, 0.0,  // 우측 상단
-                1.0, 1.0,  // 우측 하단
-            ];
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
-
-            // 이미지 로드 및 텍스처 생성
-            const image = new Image();
-            image.src = "gourment.webp"; // 같은 폴더의 ksdyb-all.jpeg 이미지 사용
-            image.onload = function() {
-                // 텍스처 생성
-                texture = gl.createTexture();
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-
-                // 텍스처 파라미터 설정
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-                // 이미지를 텍스처로 업로드
-                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-
-                // 이미지 비율 계산 및 적용
-                const imageAspect = image.width / image.height;
-                adjustRectangleToImageAspect(imageAspect);
-
-                // 애니메이션 시작
-                requestAnimationFrame(render);
-            };
-
-            // 이미지 비율에 맞게 사각형 크기 조정
-            function adjustRectangleToImageAspect(imageAspect) {
-                const canvasAspect = canvas.width / canvas.height;
-
-                if (imageAspect > canvasAspect) {
-                    // 이미지가 더 가로로 긴 경우
-                    const newHeight = canvasAspect / imageAspect;
-                    positions[1] = newHeight / 2;    // 좌측 상단 y
-                    positions[4] = -newHeight / 2;   // 좌측 하단 y
-                    positions[7] = newHeight / 2;    // 우측 상단 y
-                    positions[10] = -newHeight / 2;  // 우측 하단 y
-                } else {
-                    // 이미지가 더 세로로 긴 경우
-                    const newWidth = imageAspect / canvasAspect;
-                    positions[0] = -newWidth / 2;    // 좌측 상단 x
-                    positions[3] = -newWidth / 2;    // 좌측 하단 x
-                    positions[6] = newWidth / 2;     // 우측 상단 x
-                    positions[9] = newWidth / 2;     // 우측 하단 x
-                }
-
-                gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-            }
-
-            // 애니메이션 렌더링 함수
-            function render(currentTime) {
-                // 시간 계산 (밀리초를 초로 변환)
-                const deltaTime = (currentTime - lastTime) / 1000;
-                lastTime = currentTime;
-
-                // 회전 각도 업데이트 (속도에 따라) - 좌에서 우로 회전
-                if (isRotating) {
-                    angle += rotationSpeed * deltaTime * 50; // 양수로 변경하여 좌→우 회전
-                    if (angle > 360) {
-                        angle -= 360; // 360도를 넘어가면 0도로 리셋
-                    }
-                }
-
-                // 뷰포트 설정
-                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-
-                // 캔버스 지우기 (검은색 배경)
-                gl.clearColor(0.0, 0.0, 0.0, 1.0);
-                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-                // 깊이 테스트 활성화
-                gl.enable(gl.DEPTH_TEST);
-
-                // 셰이더 프로그램 사용
-                gl.useProgram(program);
-
-                // 위치 속성 설정
-                gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-                gl.enableVertexAttribArray(positionLocation);
-                gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0); // 3개 요소로 변경
-
-                // 텍스처 좌표 속성 설정
-                gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-                gl.enableVertexAttribArray(texCoordLocation);
-                gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
-
-                // 회전 각도를 라디안으로 변환
-                const angleInRadians = angle * Math.PI / 180;
-
-                // Y축 회전 행렬 생성 (좌에서 우로 회전)
-                const cosAngle = Math.cos(angleInRadians);
-                const sinAngle = Math.sin(angleInRadians);
-
-                // 4x4 변환 행렬 생성 (Y축 회전)
-                const matrix = [
-                    cosAngle, 0, sinAngle, 0,
-                    0, 1, 0, 0,
-                    -sinAngle, 0, cosAngle, 0,
-                    0, 0, 0, 1
-                ];
-
-                // 회전 행렬을 셰이더에 전달
-                gl.uniformMatrix4fv(matrixLocation, false, matrix);
-
-                // 텍스처 유닛 0 사용
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, texture);
-                gl.uniform1i(imageLocation, 0);
-
-                // 이미지 그리기
-                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-                // 다음 프레임 요청
-                requestAnimationFrame(render);
-            }
-
-            // 컨트롤 기능 설정
-            const speedControl = document.getElementById("speedControl");
-            speedControl.addEventListener("input", function() {
-                rotationSpeed = parseFloat(speedControl.value);
-            });
-
-            const pauseButton = document.getElementById("pauseButton");
-            pauseButton.addEventListener("click", function() {
-                isRotating = !isRotating;
-                pauseButton.textContent = isRotating ? "일시정지" : "재생";
-            });
-
-            // 창 크기 변경 시 캔버스 크기 조정
-            window.addEventListener("resize", function() {
-                resizeCanvasToDisplaySize(canvas);
-                gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-            });
-        }
-
-        // 셰이더 생성 함수
-        function createShader(gl, type, source) {
+        // 셰이더 컴파일 함수
+        function compileShader(source, type) {
             const shader = gl.createShader(type);
             gl.shaderSource(shader, source);
             gl.compileShader(shader);
 
-            // 컴파일 성공 확인
             if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-                console.error("셰이더 컴파일 오류:", gl.getShaderInfoLog(shader));
+                alert('셰이더 컴파일 오류: ' + gl.getShaderInfoLog(shader));
                 gl.deleteShader(shader);
                 return null;
             }
-
             return shader;
         }
 
-        // 셰이더 프로그램 생성 함수
-        function createProgram(gl, vertexSource, fragmentSource) {
-            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexSource);
-            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+        // 셰이더 프로그램 초기화
+        const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
+        const fragmentShader = compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
 
-            const program = gl.createProgram();
-            gl.attachShader(program, vertexShader);
-            gl.attachShader(program, fragmentShader);
-            gl.linkProgram(program);
+        const shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
 
-            // 링크 성공 확인
-            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-                console.error("프로그램 링크 오류:", gl.getProgramInfoLog(program));
-                return null;
-            }
-
-            return program;
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+            alert('셰이더 프로그램 초기화 실패: ' + gl.getProgramInfoLog(shaderProgram));
+            return;
         }
 
-        // 캔버스 크기 조정 함수
-        function resizeCanvasToDisplaySize(canvas) {
-            const displayWidth = canvas.clientWidth;
-            const displayHeight = canvas.clientHeight;
+        // 셰이더 프로그램 정보
+        const programInfo = {
+            program: shaderProgram,
+            attribLocations: {
+                vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+                textureCoord: gl.getAttribLocation(shaderProgram, 'aTextureCoord'),
+            },
+            uniformLocations: {
+                projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+                modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+                uSampler: gl.getUniformLocation(shaderProgram, 'uSampler'),
+            },
+        };
 
-            if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
-                canvas.width = displayWidth;
-                canvas.height = displayHeight;
-            }
+        // 버퍼 초기화
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+        // 정사각형 정점 (앞뒤 면)
+        const positions = [
+            // 앞면
+            -1.0, -1.0,  1.0,
+             1.0, -1.0,  1.0,
+             1.0,  1.0,  1.0,
+            -1.0,  1.0,  1.0,
+        ];
+
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+        // 텍스처 좌표 버퍼
+        const textureCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
+
+        const textureCoordinates = [
+            // 앞면
+            0.0, 1.0,
+            1.0, 1.0,
+            1.0, 0.0,
+            0.0, 0.0,
+        ];
+
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoordinates), gl.STATIC_DRAW);
+
+        // 인덱스 버퍼
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
+        const indices = [
+            0, 1, 2,    0, 2, 3, // 앞면
+        ];
+
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+        // 텍스처 로드 및 초기화
+        const texture = gl.createTexture();
+        const image = new Image();
+        image.onload = function() {
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+            // 이미지 크기가 2의 제곱수가 아닐 경우를 위한 설정
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+            // 애니메이션 시작
+            requestAnimationFrame(render);
+        };
+        image.src = '비트_표지.jpg'; // 이미지 경로 설정
+
+        // 행렬 연산을 위한 라이브러리 함수들
+        function mat4Perspective(out, fovy, aspect, near, far) {
+            const f = 1.0 / Math.tan(fovy / 2);
+            out[0] = f / aspect;
+            out[1] = 0;
+            out[2] = 0;
+            out[3] = 0;
+            out[4] = 0;
+            out[5] = f;
+            out[6] = 0;
+            out[7] = 0;
+            out[8] = 0;
+            out[9] = 0;
+            out[10] = (far + near) / (near - far);
+            out[11] = -1;
+            out[12] = 0;
+            out[13] = 0;
+            out[14] = (2 * far * near) / (near - far);
+            out[15] = 0;
+            return out;
         }
 
-        // 페이지 로드 시 main 함수 실행
-        window.onload = main;
+        function mat4Identity(out) {
+            out[0] = 1;
+            out[1] = 0;
+            out[2] = 0;
+            out[3] = 0;
+            out[4] = 0;
+            out[5] = 1;
+            out[6] = 0;
+            out[7] = 0;
+            out[8] = 0;
+            out[9] = 0;
+            out[10] = 1;
+            out[11] = 0;
+            out[12] = 0;
+            out[13] = 0;
+            out[14] = 0;
+            out[15] = 1;
+            return out;
+        }
+
+        function mat4Translate(out, a, v) {
+            const x = v[0], y = v[1], z = v[2];
+
+            out[0] = a[0];
+            out[1] = a[1];
+            out[2] = a[2];
+            out[3] = a[3];
+            out[4] = a[4];
+            out[5] = a[5];
+            out[6] = a[6];
+            out[7] = a[7];
+            out[8] = a[8];
+            out[9] = a[9];
+            out[10] = a[10];
+            out[11] = a[11];
+            out[12] = a[0] * x + a[4] * y + a[8] * z + a[12];
+            out[13] = a[1] * x + a[5] * y + a[9] * z + a[13];
+            out[14] = a[2] * x + a[6] * y + a[10] * z + a[14];
+            out[15] = a[3] * x + a[7] * y + a[11] * z + a[15];
+
+            return out;
+        }
+
+        function mat4RotateY(out, a, rad) {
+            const s = Math.sin(rad);
+            const c = Math.cos(rad);
+
+            const a00 = a[0];
+            const a01 = a[1];
+            const a02 = a[2];
+            const a03 = a[3];
+            const a20 = a[8];
+            const a21 = a[9];
+            const a22 = a[10];
+            const a23 = a[11];
+
+            // Y축 회전 행렬 적용
+            out[0] = a00 * c - a20 * s;
+            out[1] = a01 * c - a21 * s;
+            out[2] = a02 * c - a22 * s;
+            out[3] = a03 * c - a23 * s;
+            out[8] = a00 * s + a20 * c;
+            out[9] = a01 * s + a21 * c;
+            out[10] = a02 * s + a22 * c;
+            out[11] = a03 * s + a23 * c;
+
+            // 나머지 행렬 요소 복사
+            out[4] = a[4];
+            out[5] = a[5];
+            out[6] = a[6];
+            out[7] = a[7];
+            out[12] = a[12];
+            out[13] = a[13];
+            out[14] = a[14];
+            out[15] = a[15];
+
+            return out;
+        }
+
+        // 렌더링 함수
+        let rotation = 0;
+
+        function render(now) {
+            now *= 0.001; // 밀리초를 초로 변환
+            rotation = now; // 시간에 따라 회전
+
+            // 화면 지우기
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.clearDepth(1.0);
+            gl.enable(gl.DEPTH_TEST);
+            gl.depthFunc(gl.LEQUAL);
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            // 투영 행렬 설정
+            const projectionMatrix = new Float32Array(16);
+            mat4Perspective(projectionMatrix, 45 * Math.PI / 180, canvas.width / canvas.height, 0.1, 100.0);
+
+            // 모델뷰 행렬 설정
+            const modelViewMatrix = new Float32Array(16);
+            mat4Identity(modelViewMatrix);
+            mat4Translate(modelViewMatrix, modelViewMatrix, [0.0, 0.0, -5.0]);
+            mat4RotateY(modelViewMatrix, modelViewMatrix, rotation); // Y축 기준 회전
+
+            // 정점 위치 설정
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.vertexAttribPointer(
+                programInfo.attribLocations.vertexPosition,
+                3,        // 정점당 3개 값 (x, y, z)
+                gl.FLOAT, // 32bit 부동소수점
+                false,    // 정규화 안함
+                0,        // 스트라이드
+                0         // 오프셋
+            );
+            gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+
+            // 텍스처 좌표 설정
+            gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
+            gl.vertexAttribPointer(
+                programInfo.attribLocations.textureCoord,
+                2,        // 정점당 2개 값 (s, t)
+                gl.FLOAT, // 32bit 부동소수점
+                false,    // 정규화 안함
+                0,        // 스트라이드
+                0         // 오프셋
+            );
+            gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
+
+            // 인덱스 버퍼 바인딩
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
+            // 셰이더 프로그램 사용
+            gl.useProgram(programInfo.program);
+
+            // 유니폼 설정
+            gl.uniformMatrix4fv(
+                programInfo.uniformLocations.projectionMatrix,
+                false,
+                projectionMatrix
+            );
+            gl.uniformMatrix4fv(
+                programInfo.uniformLocations.modelViewMatrix,
+                false,
+                modelViewMatrix
+            );
+
+            // 텍스처 설정
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
+
+            // 그리기
+            gl.drawElements(
+                gl.TRIANGLES,
+                6,             // 인덱스 수
+                gl.UNSIGNED_SHORT,
+                0
+            );
+
+            // 다음 프레임 요청
+            requestAnimationFrame(render);
+        }
     </script>
 </body>
 </html>
