@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>WebGL 이미지 자동 회전 (좌→우)</title>
     <style>
-        body { margin: 0; overflow: hidden; }
+        body { margin: 0; overflow: hidden; background-color: #000000; }
         canvas { display: block; width: 100vw; height: 100vh; }
         .controls { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.7); padding: 10px; border-radius: 5px; }
     </style>
@@ -57,7 +57,7 @@
             let lastTime = 0;
 
             const canvas = document.getElementById("glCanvas");
-            const gl = canvas.getContext("webgl", { alpha: true }); // 알파 채널 활성화
+            const gl = canvas.getContext("webgl");
 
             if (!gl) {
                 alert("WebGL을 지원하지 않는 브라우저입니다.");
@@ -104,7 +104,7 @@
 
             // 이미지 로드 및 텍스처 생성
             const image = new Image();
-            image.src = "beet_cover.jpeg"; 
+            image.src = "beet_cover1.jpeg"; // 같은 폴더의 ksdyb-all.jpeg 이미지 사용
             image.onload = function() {
                 // 텍스처 생성
                 texture = gl.createTexture();
@@ -168,13 +168,9 @@
                 // 뷰포트 설정
                 gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-                // 캔버스 지우기 (투명 배경)
-                gl.clearColor(0.0, 0.0, 0.0, 0.0); // 알파값을 0으로 설정하여 투명하게
+                // 캔버스 지우기 (검은색 배경)
+                gl.clearColor(0.0, 0.0, 0.0, 1.0);
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-                // 알파 블렌딩 활성화
-                gl.enable(gl.BLEND);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
                 // 깊이 테스트 활성화
                 gl.enable(gl.DEPTH_TEST);
